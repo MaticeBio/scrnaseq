@@ -11,7 +11,7 @@ library(SingleCellExperiment)
 adata <- read_h5ad("${h5ad}")
 
 # convert to Seurat
-obj <- adata\$as_Seurat()
+obj <- adata\$as_Seurat(x_mapping = "counts")
 
 # save files
 dir.create(file.path("$meta.id"), showWarnings = FALSE)
