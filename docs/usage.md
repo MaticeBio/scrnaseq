@@ -124,6 +124,52 @@ For protocols without a QCatch chemistry mapping (e.g. `10XV1`, `dropseq`), QCat
 
 For more details, see Simpleaf's paper, [He _et al._ 2023](https://doi.org/10.1093/bioinformatics/btad614) and the [detailed description](https://hackmd.io/@PI7Og0l1ReeBZu_pjQGUQQ/rJMgmvr13).
 
+#### STARsolo
+
+STARsolo's cell-barcode whitelist (`--soloCBwhitelist`) takes one of three forms, and the pipeline
+emits whichever the chemistry needs:
+
+- **one list** — the contiguous-barcode case, used by the four 10x protocols, which ship a whitelist
+  under `assets/whitelist/`. A gzipped list is decompressed before it is handed to STAR, because
+  STAR does not read compressed whitelists;
+- **no list** — emitted as STARsolo's literal `None`, which is correct for chemistries whose cell
+  barcodes are not drawn from a fixed set, such as Drop-seq. Give no `whitelist` in
+  `assets/protocols.json` and leave `--barcode_whitelist` unset;
+- **several lists** — one per barcode segment, for split-barcode chemistries. STAR matches the Nth
+  list to the Nth `--soloCBposition` segment, so the lists must be given **in segment order**: with
+  the order wrong, STAR counts every read as `noTooManyMM` and writes an all-zero matrix _without
+  failing_. This form also requires `--soloType CB_UMI_Complex` with `--soloCBmatchWLtype Exact` or
+  `1MM` (the default `1MM_multi` is rejected for `CB_UMI_Complex`), plus `--soloCBposition` /
+  `--soloUMIposition`. Those come from `ext.args`; the module does not set them.
+
+  The `star_align` module supports this form, but **the pipeline has no way to supply several lists
+  yet**: `--barcode_whitelist` is a single `file-path` in `nextflow_schema.json`, and a protocol's
+  `whitelist` in `assets/protocols.json` is a single string. Wiring a split-barcode chemistry up
+  therefore still needs a schema and workflow change on top of this; the module is no longer the
+  blocker.
+
+**Drop-seq geometry.** `--protocol dropseq` with `--aligner star` sets
+`--soloCBstart 1 --soloCBlen 12 --soloUMIstart 13 --soloUMIlen 8`: a 12 bp cell barcode followed by
+an 8 bp UMI in read 1, as described in Macosko _et al._ 2015
+([10.1016/j.cell.2015.05.002](https://doi.org/10.1016/j.cell.2015.05.002)), the revision this entry
+encodes. Drop-seq derivatives with a different barcode length exist, so pass the geometry explicitly
+through `ext.args` rather than relying on `--protocol dropseq` if your library is not that
+revision.
+
+Two things to know when a library is not that revision. First, STARsolo additionally requires read 1
+to be **exactly** CB + UMI long, so a Drop-seq run whose read 1 is 21 bp or longer aborts with
+_"the total length of barcode sequence is N not equal to expected 20"_; `--soloBarcodeReadLength 0`
+through `ext.args` disables that check, and the geometry above stays correct because the cell
+barcode and UMI are at the front of the read. The check is left **on** by default deliberately — it
+is the only thing that catches a library declared as Drop-seq that is not one.
+
+Second, to override the geometry, do **not** combine `--protocol dropseq` with `--solo*` options in
+`ext.args`: the protocol's own `extra_args` are emitted on the same STAR command line, and a
+repeated STAR parameter is a fatal error (_"duplicate parameter ... in input Command-Line"_), not
+last-one-wins. Pass a `--protocol` value that is not a key in `assets/protocols.json` — for example
+`--protocol CB_UMI_Simple`, which the pipeline hands to STAR verbatim with a warning and no
+`extra_args` — and put the whole geometry in `ext.args`.
+
 #### Cell Ranger ARC
 
 ##### Automatic file name detection

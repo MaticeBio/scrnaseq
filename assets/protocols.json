@@ -67,7 +67,8 @@
             "whitelist": "assets/whitelist/10x_V4_barcode_whitelist.txt.gz"
         },
         "dropseq": {
-            "protocol": "CB_UMI_Simple"
+            "protocol": "CB_UMI_Simple",
+            "extra_args": "--soloCBstart 1 --soloCBlen 12 --soloUMIstart 13 --soloUMIlen 8"
         },
         "smartseq": {
             "protocol": "SmartSeq"
