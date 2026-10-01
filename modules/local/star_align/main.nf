@@ -60,19 +60,41 @@ process STAR_ALIGN {
 
     // separate forward from reverse pairs
     def (forward, reverse) = reads.collate(2).transpose()
+
+    // The cell-barcode whitelist is optional and may be multi-valued, because STARsolo's
+    // --soloCBwhitelist is:
+    //   * `None` for chemistries that draw barcodes from no fixed list (e.g. Drop-seq);
+    //   * one file for a contiguous barcode (the four 10x protocols);
+    //   * one file per barcode segment for split-barcode chemistries (e.g. inDrops needs two).
+    //     STAR matches the Nth list to the Nth --soloCBposition segment, so the ORDER of this
+    //     input is load-bearing and must not be sorted: hand the lists over in segment order.
+    //     Getting it wrong is silent — STAR counts every read as `noTooManyMM` and writes an
+    //     all-zero matrix without failing.
+    // Each list is staged decompressed because STAR will not read a gzipped whitelist. The
+    // single-list case deliberately keeps the historical name `whitelist.uncompressed.txt`
+    // so the command emitted for 10x is unchanged.
+    def whitelists = (whitelist instanceof Collection ? whitelist.toList() : [whitelist]).findAll { wl -> wl }
+    def n_whitelists = whitelists.size()
+    def staged_whitelists = (0..<n_whitelists).collect { i ->
+        n_whitelists == 1 ? 'whitelist.uncompressed.txt' : "whitelist.${i + 1}.uncompressed.txt"
+    }
+    def whitelist_arg = n_whitelists ? staged_whitelists.join(' ') : 'None'
+    def uncompress_whitelists = (0..<n_whitelists).collect { i ->
+        [ "if [[ ${whitelists[i]} == *.gz ]]; then",
+          "    gzip -cdf ${whitelists[i]} > ${staged_whitelists[i]}",
+          "else",
+          "    cp ${whitelists[i]} ${staged_whitelists[i]}",
+          "fi" ].join('\n    ')
+    }.join('\n    ')
     """
-    if [[ $whitelist == *.gz ]]; then
-        gzip -cdf $whitelist > whitelist.uncompressed.txt
-    else
-        cp $whitelist whitelist.uncompressed.txt
-    fi
+    $uncompress_whitelists
 
     STAR \\
         --genomeDir $index \\
         --readFilesIn ${reverse.join( "," )} ${forward.join( "," )} \\
         --runThreadN $task.cpus \\
         --outFileNamePrefix $prefix. \\
-        --soloCBwhitelist whitelist.uncompressed.txt \\
+        --soloCBwhitelist $whitelist_arg \\
         --soloType $protocol \\
         --soloFeatures $star_feature \\
         $other_10x_parameters \\
